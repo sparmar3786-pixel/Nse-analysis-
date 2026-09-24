@@ -20,14 +20,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Find and extract project ZIP
+      - name: Extract Android project
         shell: bash
         run: |
           set -e
 
           mkdir -p build-src
 
-          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: Project ZIP not found"
@@ -35,7 +35,6 @@ jobs:
           fi
 
           echo "Using ZIP: $ZIP_FILE"
-
           unzip -q "$ZIP_FILE" -d build-src
 
       - name: Find Android project
@@ -43,38 +42,53 @@ jobs:
         run: |
           set -e
 
-          PROJECT_DIR=$(find build-src -type f -name "gradlew" -print -quit | xargs -r dirname)
+          PROJECT_DIR=$(find build-src -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit | xargs -r dirname)
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: gradlew not found"
+            echo "ERROR: Android project not found"
             find build-src -maxdepth 4 -type f | head -100
             exit 1
           fi
 
-          PROJECT_DIR=$(cd "$PROJECT_DIR" && pwd)
-
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project: $PROJECT_DIR"
 
-          echo "Android project found:"
-          echo "$PROJECT_DIR"
-
-      - name: Make Gradle executable
-        run: |
-          chmod +x "$PROJECT_DIR/gradlew"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
 
       - name: Build Debug APK
+        shell: bash
         run: |
+          set -e
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon assembleDebug
+
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
+          fi
 
       - name: Find APK
+        shell: bash
         run: |
-          find "$PROJECT_DIR" -type f -name "*.apk" -print
+          set -e
+
+          APK_FILE=$(find "$PROJECT_DIR" -type f -path "*/build/outputs/apk/debug/*.apk" | head -n 1)
+
+          if [ -z "$APK_FILE" ]; then
+            echo "ERROR: APK not found"
+            exit 1
+          fi
+
+          echo "APK found: $APK_FILE"
+          echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: NSE-Option-Chain-Analyzer-APK
-          path: |
-            ${{ env.PROJECT_DIR }}/**/build/outputs/apk/**/*.apk
+          path: ${{ env.APK_FILE }}
           if-no-files-found: error
