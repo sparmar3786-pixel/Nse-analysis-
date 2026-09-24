@@ -25,54 +25,62 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Extract Android project
+      - name: Prepare Android project
         shell: bash
         run: |
           set -e
 
-          mkdir -p build-src
+          echo "Checking repository..."
 
-          unzip -q "NSE_Option_Chain_Analyzer_Mobile_APK_Build.zip" -d build-src
+          if [ -f "build-src/settings.gradle" ] || [ -f "build-src/settings.gradle.kts" ]; then
+            echo "Android project already exists in build-src"
+          else
+            echo "Searching for Android APK ZIP..."
 
-          echo "Extracted files:"
-          find build-src -maxdepth 5 -type f | head -200
+            ZIP_FILE=$(find . -type f -iname "*.zip" | grep -Ei "mobile.*apk|apk.*build" | head -n 1 || true)
 
-      - name: Find Android project
-        shell: bash
-        run: |
-          set -e
+            if [ -z "$ZIP_FILE" ]; then
+              echo "ERROR: Android project ZIP not found."
+              echo "Available ZIP files:"
+              find . -type f -iname "*.zip"
+              exit 1
+            fi
+
+            echo "Using ZIP: $ZIP_FILE"
+
+            mkdir -p build-src
+            unzip -q "$ZIP_FILE" -d build-src
+          fi
+
+          echo "Searching for settings.gradle..."
 
           PROJECT_DIR=$(find build-src -type f \
             \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
             -print -quit | xargs -r dirname)
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android Gradle project not found"
+            echo "ERROR: Android Gradle project not found."
             find build-src -maxdepth 6 -type f
             exit 1
           fi
 
-          echo "Android project found at: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Generate Gradle wrapper
         shell: bash
         run: |
           set -e
-
           cd "$PROJECT_DIR"
 
           gradle wrapper --gradle-version 8.7
 
           chmod +x gradlew
 
-          echo "Gradle wrapper generated successfully"
-
       - name: Build Debug APK
         shell: bash
         run: |
           set -e
-
           cd "$PROJECT_DIR"
 
           ./gradlew assembleDebug --no-daemon
@@ -80,9 +88,7 @@ jobs:
       - name: Find APK
         shell: bash
         run: |
-          set -e
-
-          echo "Searching for APK..."
+          echo "APK files:"
           find "$PROJECT_DIR" -type f -name "*.apk" -print
 
       - name: Upload APK
